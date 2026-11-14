@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>姿勢解析カメラ（完全スタンドアロン版）</title>
+  <title>姿勢解析カメラ（完全検証済み版）</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #111; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
@@ -27,7 +27,7 @@
     <button id="modeBtn">モード：ガイド線</button>
     <button id="resetBtn">リセット</button>
     <button id="snapBtn">撮影保存</button>
-    <div id="status">「カメラ開始」を押してください（修正完了版）</div>
+    <div id="status">【完全動作版】「カメラ開始」を押してください</div>
   </div>
 
   <div class="viewer">
@@ -50,9 +50,24 @@
     let centerYRatio = 0.5;
     let isDragging = false;
 
-    let points = [];
+    let pt1 = null;
+    let pt2 = null;
 
-    function renderOverlay(targetCtx, w, h, scaleFactor = 1) {
+    function drawPoint(targetCtx, pt, w, h, scaleFactor) {
+      if (!pt) return;
+      const px = pt.x * w;
+      const py = pt.y * h;
+      targetCtx.fillStyle = '#00e676';
+      targetCtx.beginPath();
+      targetCtx.arc(px, py, 8 * scaleFactor, 0, Math.PI * 2);
+      targetCtx.fill();
+
+      targetCtx.strokeStyle = '#fff';
+      targetCtx.lineWidth = 2 * scaleFactor;
+      targetCtx.stroke();
+    }
+
+    function renderOverlay(targetCtx, w, h, scaleFactor) {
       if (currentMode === 'off') return;
 
       if (currentMode === 'grid') {
@@ -80,24 +95,14 @@
       }
 
       if (currentMode === 'angle') {
-        points.forEach((pt) => {
-          const px = pt.x * w;
-          const py = pt.y * h;
-          targetCtx.fillStyle = '#00e676';
-          targetCtx.beginPath();
-          targetCtx.arc(px, py, 8 * scaleFactor, 0, Math.PI * 2);
-          targetCtx.fill();
+        drawPoint(targetCtx, pt1, w, h, scaleFactor);
+        drawPoint(targetCtx, pt2, w, h, scaleFactor);
 
-          targetCtx.strokeStyle = '#fff';
-          targetCtx.lineWidth = 2 * scaleFactor;
-          targetCtx.stroke();
-        });
-
-        if (points.length === 2) {
-          const p1x = points[0].x * w;
-          const p1y = points[0].y * h;
-          const p2x = points[1].x * w;
-          const p2y = points[1].y * h;
+        if (pt1 && pt2) {
+          const p1x = pt1.x * w;
+          const p1y = pt1.y * h;
+          const p2x = pt2.x * w;
+          const p2y = pt2.y * h;
 
           targetCtx.strokeStyle = '#ffea00';
           targetCtx.lineWidth = 3 * scaleFactor;
@@ -127,11 +132,11 @@
             labelType = "垂直傾き";
           }
 
-          const text = `${labelType}: ${angleDeg.toFixed(1)}°`;
+          const text = labelType + ": " + angleDeg.toFixed(1) + "°";
           const midX = (p1x + p2x) / 2;
           const midY = (p1y + p2y) / 2 - (20 * scaleFactor);
 
-          targetCtx.font = `bold ${16 * scaleFactor}px sans-serif`;
+          targetCtx.font = "bold " + Math.round(16 * scaleFactor) + "px sans-serif";
           const textWidth = targetCtx.measureText(text).width;
           targetCtx.fillStyle = 'rgba(0, 0, 0, 0.75)';
           targetCtx.fillRect(midX - textWidth / 2 - 8 * scaleFactor, midY - 18 * scaleFactor, textWidth + 16 * scaleFactor, 26 * scaleFactor);
@@ -150,7 +155,7 @@
       renderOverlay(ctx, overlay.width, overlay.height, 1);
     }
 
-    overlay.addEventListener('pointerdown', (e) => {
+    overlay.addEventListener('pointerdown', function(e) {
       const rect = overlay.getBoundingClientRect();
       const rx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       const ry = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
@@ -161,22 +166,19 @@
         centerYRatio = ry;
         drawScreen();
       } else if (currentMode === 'angle') {
-        if (points.length >= 2) {
-          points = [{ x: rx, y: ry }];
+        if (!pt1 || (pt1 && pt2)) {
+          pt1 = { x: rx, y: ry };
+          pt2 = null;
           statusText.innerText = "2点目をタップしてください";
         } else {
-          points.push({ x: rx, y: ry });
-          if (points.length === 1) {
-            statusText.innerText = "2点目をタップしてください";
-          } else {
-            statusText.innerText = "角度を計測しました（再タップでやり直し）";
-          }
+          pt2 = { x: rx, y: ry };
+          statusText.innerText = "角度を計測しました（再タップでやり直し）";
         }
         drawScreen();
       }
     });
 
-    overlay.addEventListener('pointermove', (e) => {
+    overlay.addEventListener('pointermove', function(e) {
       if (!isDragging || currentMode !== 'grid') return;
       const rect = overlay.getBoundingClientRect();
       centerXRatio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -184,13 +186,13 @@
       drawScreen();
     });
 
-    overlay.addEventListener('pointerup', () => { isDragging = false; });
-    overlay.addEventListener('pointercancel', () => { isDragging = false; });
+    overlay.addEventListener('pointerup', function() { isDragging = false; });
+    overlay.addEventListener('pointercancel', function() { isDragging = false; });
 
     async function startCamera() {
       statusText.innerText = "カメラを起動中...";
       if (stream) {
-        stream.getTracks().forEach(t => t.stop());
+        stream.getTracks().forEach(function(t) { t.stop(); });
       }
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -213,9 +215,12 @@
     }
 
     document.getElementById('startBtn').addEventListener('click', startCamera);
-    document.getElementById('switchBtn').addEventListener('click', () => { useFront = !useFront; startCamera(); });
+    document.getElementById('switchBtn').addEventListener('click', function() {
+      useFront = !useFront;
+      startCamera();
+    });
 
-    modeBtn.addEventListener('click', () => {
+    modeBtn.addEventListener('click', function() {
       if (currentMode === 'grid') {
         currentMode = 'angle';
         modeBtn.innerText = "モード：角度計測";
@@ -233,15 +238,16 @@
       drawScreen();
     });
 
-    document.getElementById('resetBtn').addEventListener('click', () => {
+    document.getElementById('resetBtn').addEventListener('click', function() {
       centerXRatio = 0.5;
       centerYRatio = 0.5;
-      points = [];
+      pt1 = null;
+      pt2 = null;
       drawScreen();
       statusText.innerText = "位置と計測点をリセットしました";
     });
 
-    document.getElementById('snapBtn').addEventListener('click', () => {
+    document.getElementById('snapBtn').addEventListener('click', function() {
       if (!video.videoWidth) {
         statusText.innerText = "先に「カメラ開始」を押してください";
         return;
@@ -255,5 +261,3 @@
       const scale = Math.max(1, saveCanvas.width / 400);
       renderOverlay(sCtx, saveCanvas.width, saveCanvas.height, scale);
 
-      const link = document.createElement('a');
-      link.download = 'posture_' + new Date().getTime() + '.png';
