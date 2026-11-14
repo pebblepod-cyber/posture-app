@@ -8,59 +8,59 @@
     body { margin: 0; background: #111; color: #fff; font-family: sans-serif; text-align: center; }
     .container { position: relative; width: 100vw; max-width: 600px; margin: 0 auto; }
     video, canvas { width: 100%; height: auto; display: block; border-radius: 8px; }
-    canvas { position: absolute; top: 0; left: 0; }
+    canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
     .controls { padding: 15px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
     button { padding: 12px 20px; font-size: 16px; border: none; border-radius: 8px; background: #00c853; color: #fff; font-weight: bold; cursor: pointer; }
     button#switchBtn { background: #2979ff; }
     #status { width: 100%; margin-top: 8px; font-size: 14px; color: #ffeb3b; }
   </style>
-  <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
-  <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
 </head>
 <body>
   <div class="controls">
     <button id="startBtn">カメラを開始</button>
     <button id="switchBtn">前面 / 背面 切替</button>
-    <div id="status">「カメラを開始」ボタンを押してください</div>
+    <div id="status">準備中...（数秒お待ちください）</div>
   </div>
   <div class="container">
     <video id="video" playsinline muted autoplay></video>
     <canvas id="canvas"></canvas>
   </div>
 
-  <script>
+  <script type="module">
+    import { PoseLandmarker, FilesetResolver, DrawingUtils } from "https://jsdelivr.net";
+
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const statusText = document.getElementById('status');
+    let poseLandmarker = null;
     let useFrontCamera = false;
     let currentStream = null;
     let isRunning = false;
 
-    const pose = new Pose({
-      locateFile: (file) => `https://jsdelivr.net{file}`
-    });
-    pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-
-    pose.onResults((results) => {
-      if (video.videoWidth > 0) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+    async function initAI() {
+      try {
+        const vision = await FilesetResolver.forVisionTasks("https://jsdelivr.net/wasm");
+        poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: "https://googleapis.com",
+            delegate: "GPU"
+          },
+          runningMode: "VIDEO",
+          numPoses: 1
+        });
+        statusText.innerText = "準備完了！「カメラを開始」を押してください";
+      } catch (e) {
+        statusText.innerText = "AI読込エラー: " + e.message;
       }
-      ctx.save();
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (results.poseLandmarks) {
-        statusText.innerText = "骨格を検知中！";
-        drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
-        drawLandmarks(ctx, results.poseLandmarks, { color: '#FF0000', lineWidth: 2, radius: 4 });
-      } else {
-        statusText.innerText = "カメラに全身または上半身を映してください";
-      }
-      ctx.restore();
-    });
+    }
 
     async function startCamera() {
-      statusText.innerText = "カメラとAIを準備中...";
+      if (!poseLandmarker) {
+        statusText.innerText = "まだAIを準備中です。数秒後にもう一度押してください";
+        return;
+      }
+      statusText.innerText = "カメラを起動中...";
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
       }
@@ -81,9 +81,26 @@
       }
     }
 
-    async function detectFrame() {
-      if (video.readyState >= 2) {
-        await pose.send({ image: video });
+    let lastVideoTime = -1;
+    function detectFrame() {
+      if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const results = poseLandmarker.detectForVideo(video, performance.now());
+        ctx.save();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (results.landmarks && results.landmarks.length > 0) {
+          statusText.innerText = "骨格を検知中！";
+          const drawingUtils = new DrawingUtils(ctx);
+          for (const landmark of results.landmarks) {
+            drawingUtils.drawConnectors(landmark, PoseLandmarker.POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
+            drawingUtils.drawLandmarks(landmark, { color: '#FF0000', lineWidth: 2, radius: 4 });
+          }
+        } else {
+          statusText.innerText = "カメラに人を映してください";
+        }
+        ctx.restore();
       }
       requestAnimationFrame(detectFrame);
     }
@@ -93,6 +110,9 @@
       useFrontCamera = !useFrontCamera;
       startCamera();
     });
+
+    initAI();
   </script>
 </body>
 </html>
+
