@@ -14,55 +14,63 @@
     button#switchBtn { background: #2979ff; }
     #status { width: 100%; margin-top: 8px; font-size: 14px; color: #ffeb3b; }
   </style>
+  <script src="https://unpkg.com" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com" crossorigin="anonymous"></script>
 </head>
 <body>
   <div class="controls">
-    <button id="startBtn">カメラを開始</button>
-    <button id="switchBtn">前面 / 背面 切替</button>
-    <div id="status">準備完了！「カメラを開始」を押してください</div>
+    <button id="startBtn" onclick="startCamera()">カメラを開始</button>
+    <button id="switchBtn" onclick="switchCamera()">前面 / 背面 切替</button>
+    <div id="status">【Ver.4】「カメラを開始」を押してください</div>
   </div>
   <div class="container">
     <video id="video" playsinline muted autoplay></video>
     <canvas id="canvas"></canvas>
   </div>
 
-  <script type="module">
-    import { PoseLandmarker, FilesetResolver, DrawingUtils } from "https://esm.sh";
-
+  <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const statusText = document.getElementById('status');
     let useFrontCamera = false;
     let currentStream = null;
-    let poseLandmarker = null;
-    let isRunning = false;
+    let pose = null;
+    let isDetecting = false;
 
-    async function initAI() {
-      if (poseLandmarker) return;
-      try {
-        statusText.innerText = "骨格AIモデルを読み込み中...";
-        const vision = await FilesetResolver.forVisionTasks("https://jsdelivr.net");
-        poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: "https://googleapis.com",
-            delegate: "CPU"
-          },
-          runningMode: "VIDEO",
-          numPoses: 1
-        });
-        statusText.innerText = "骨格AI準備完了！人を映してください";
-        if (!isRunning) {
-          isRunning = true;
-          detectFrame();
-        }
-      } catch (e) {
-        statusText.innerText = "AI初期化エラー: " + e.message;
+    function initPose() {
+      if (pose) return;
+      if (typeof Pose === 'undefined') {
+        statusText.innerText = "AIプログラムの読み込みに失敗しました。通信環境を確認してください";
+        return;
       }
+      pose = new Pose({
+        locateFile: (file) => `https://unpkg.com{file}`
+      });
+      pose.setOptions({
+        modelComplexity: 0,
+        smoothLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+      pose.onResults((results) => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.save();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (results.poseLandmarks) {
+          statusText.innerText = "骨格を検知中！";
+          drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
+          drawLandmarks(ctx, results.poseLandmarks, { color: '#FF0000', lineWidth: 2, radius: 4 });
+        } else {
+          statusText.innerText = "カメラに人を映してください";
+        }
+        ctx.restore();
+      });
     }
 
     async function startCamera() {
-      statusText.innerText = "カメラを起動中...";
+      statusText.innerText = "カメラを起動しています...";
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
       }
@@ -74,38 +82,31 @@
         currentStream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = currentStream;
         await video.play();
-        await initAI();
+        statusText.innerText = "骨格AIを起動中...";
+        initPose();
+        if (!isDetecting) {
+          isDetecting = true;
+          detectLoop();
+        }
       } catch (err) {
         statusText.innerText = "カメラエラー: " + err.message;
       }
     }
 
-    document.getElementById('startBtn').addEventListener('click', startCamera);
-    document.getElementById('switchBtn').addEventListener('click', () => {
+    function switchCamera() {
       useFrontCamera = !useFrontCamera;
       startCamera();
-    });
+    }
 
-    let lastVideoTime = -1;
-    function detectFrame() {
-      if (poseLandmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
-        lastVideoTime = video.currentTime;
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const results = poseLandmarker.detectForVideo(video, performance.now());
-        ctx.save();
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (results.landmarks && results.landmarks.length > 0) {
-          statusText.innerText = "骨格を検知中！";
-          const drawingUtils = new DrawingUtils(ctx);
-          for (const landmark of results.landmarks) {
-            drawingUtils.drawConnectors(landmark, PoseLandmarker.POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
-            drawingUtils.drawLandmarks(landmark, { color: '#FF0000', lineWidth: 2, radius: 4 });
-          }
+    async function detectLoop() {
+      if (pose && video.readyState >= 2) {
+        try {
+          await pose.send({ image: video });
+        } catch (e) {
+          statusText.innerText = "解析エラー: " + e.message;
         }
-        ctx.restore();
       }
-      requestAnimationFrame(detectFrame);
+      requestAnimationFrame(detectLoop);
     }
   </script>
 </body>
