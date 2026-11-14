@@ -2,132 +2,134 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>姿勢解析アプリ</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>姿勢チェックカメラ</title>
   <style>
-    body { margin: 0; background: #111; color: #fff; font-family: sans-serif; text-align: center; }
-    .container { position: relative; width: 100vw; max-width: 600px; margin: 0 auto; }
-    video, canvas { width: 100%; height: auto; display: block; border-radius: 8px; }
-    canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
-    .controls { padding: 15px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-    button { padding: 12px 20px; font-size: 16px; border: none; border-radius: 8px; background: #00c853; color: #fff; font-weight: bold; cursor: pointer; }
-    button#switchBtn { background: #2979ff; }
-    #status { width: 100%; margin-top: 8px; font-size: 14px; color: #ffeb3b; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #111; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .header { padding: 10px; background: #1e1e1e; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; z-index: 10; }
+    button { padding: 10px 14px; font-size: 14px; border: none; border-radius: 6px; font-weight: bold; color: #fff; cursor: pointer; }
+    #startBtn { background: #00c853; }
+    #switchBtn { background: #2979ff; }
+    #gridBtn { background: #ff9100; }
+    #snapBtn { background: #e91e63; }
+    .viewer { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; background: #000; overflow: hidden; }
+    video { width: 100%; height: 100%; object-fit: contain; }
+    canvas#overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    #status { width: 100%; text-align: center; font-size: 12px; color: #ffeb3b; margin-top: 4px; }
   </style>
-  <script src="https://googleapis.com"></script>
-  <script src="https://jsdelivr.net"></script>
 </head>
 <body>
-  <div class="controls">
-    <button id="startBtn" onclick="startCamera()">カメラを開始</button>
-    <button id="switchBtn" onclick="switchCamera()">前面 / 背面 切替</button>
-    <div id="status">【Ver.5】AI準備中...</div>
+  <div class="header">
+    <button id="startBtn">カメラ開始</button>
+    <button id="switchBtn">カメラ切替</button>
+    <button id="gridBtn">ガイド線 ON/OFF</button>
+    <button id="snapBtn">写真保存</button>
+    <div id="status">【外部通信ゼロ版】「カメラ開始」を押してください</div>
   </div>
-  <div class="container">
+
+  <div class="viewer" id="viewer">
     <video id="video" playsinline muted autoplay></video>
-    <canvas id="canvas"></canvas>
+    <canvas id="overlay"></canvas>
   </div>
 
   <script>
     const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
+    const overlay = document.getElementById('overlay');
+    const ctx = overlay.getContext('2d');
     const statusText = document.getElementById('status');
-    let useFrontCamera = false;
-    let currentStream = null;
-    let detector = null;
-    let isDetecting = false;
+    let useFront = false;
+    let stream = null;
+    let showGrid = true;
 
-    const CONNECTIONS = [, [5, 7], [7, 9], [6, 8], [8, 10],
-, [6, 12], [11, 12],
-, [13, 15], [12, 14], [14, 16]
-    ];
+    function drawGrid() {
+      overlay.width = overlay.clientWidth;
+      overlay.height = overlay.clientHeight;
+      const w = overlay.width;
+      const h = overlay.height;
+      ctx.clearRect(0, 0, w, h);
+      if (!showGrid) return;
 
-    window.onload = async () => {
-      try {
-        if (typeof poseDetection === 'undefined') {
-          statusText.innerText = "【Ver.5】読込エラー：ブラウザの広告ブロック等をオフにしてお試しください";
-          return;
-        }
-        statusText.innerText = "【Ver.5】Google骨格モデルを読み込み中...";
-        detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
-          modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
-        });
-        statusText.innerText = "【Ver.5】準備完了！「カメラを開始」を押してください";
-      } catch (e) {
-        statusText.innerText = "【Ver.5】モデルエラー: " + e.message;
-      }
-    };
+      // 細かいマス目（薄い白線）
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.lineWidth = 1;
+      const step = 40;
+      for (let x = w / 2; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+      for (let x = w / 2; x > 0; x -= step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+      for (let y = h / 2; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+      for (let y = h / 2; y > 0; y -= step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+
+      // 中心の十字線（赤線：体の軸・肩の高さ確認用）
+      ctx.strokeStyle = 'rgba(255, 50, 50, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h);
+      ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
+      ctx.stroke();
+    }
 
     async function startCamera() {
-      statusText.innerText = "カメラを起動中...";
-      if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
+      statusText.innerText = "カメラ起動中...";
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
       }
-      const constraints = {
-        video: { facingMode: useFrontCamera ? "user" : "environment" },
-        audio: false
-      };
       try {
-        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = currentStream;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: useFront ? "user" : "environment" },
+          audio: false
+        });
+        video.srcObject = stream;
         await video.play();
-        if (!isDetecting) {
-          isDetecting = true;
-          detectLoop();
-        }
+        statusText.innerText = "稼働中（赤線を体の中心・肩の高さに合わせてください）";
+        drawGrid();
       } catch (err) {
         statusText.innerText = "カメラエラー: " + err.message;
       }
     }
 
-    function switchCamera() {
-      useFrontCamera = !useFrontCamera;
+    document.getElementById('startBtn').addEventListener('click', startCamera);
+    
+    document.getElementById('switchBtn').addEventListener('click', () => {
+      useFront = !useFront;
       startCamera();
-    }
+    });
 
-    async function detectLoop() {
-      if (detector && video.readyState >= 2) {
-        try {
-          const poses = await detector.estimatePoses(video);
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
+    document.getElementById('gridBtn').addEventListener('click', () => {
+      showGrid = !showGrid;
+      drawGrid();
+    });
 
-          if (poses.length > 0 && poses[0].keypoints) {
-            statusText.innerText = "骨格を検知中！";
-            const keypoints = poses[0].keypoints;
-
-            ctx.strokeStyle = '#00FF00';
-            ctx.lineWidth = 4;
-            CONNECTIONS.forEach(([i, j]) => {
-              const kp1 = keypoints[i];
-              const kp2 = keypoints[j];
-              if (kp1.score > 0.3 && kp2.score > 0.3) {
-                ctx.beginPath();
-                ctx.moveTo(kp1.x, kp1.y);
-                ctx.lineTo(kp2.x, kp2.y);
-                ctx.stroke();
-              }
-            });
-
-            ctx.fillStyle = '#FF0000';
-            keypoints.forEach(kp => {
-              if (kp.score > 0.3) {
-                ctx.beginPath();
-                ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
-                ctx.fill();
-              }
-            });
-          } else {
-            statusText.innerText = "カメラに人を映してください";
-          }
-        } catch (e) {
-          statusText.innerText = "解析エラー: " + e.message;
-        }
+    document.getElementById('snapBtn').addEventListener('click', () => {
+      if (!video.videoWidth) {
+        statusText.innerText = "先にカメラを開始してください";
+        return;
       }
-      requestAnimationFrame(detectLoop);
-    }
+      const saveCanvas = document.createElement('canvas');
+      saveCanvas.width = video.videoWidth;
+      saveCanvas.height = video.videoHeight;
+      const sCtx = saveCanvas.getContext('2d');
+      sCtx.drawImage(video, 0, 0, saveCanvas.width, saveCanvas.height);
+
+      if (showGrid) {
+        const w = saveCanvas.width;
+        const h = saveCanvas.height;
+        sCtx.strokeStyle = 'rgba(255, 50, 50, 0.85)';
+        sCtx.lineWidth = Math.max(3, w / 200);
+        sCtx.beginPath();
+        sCtx.moveTo(w / 2, 0); sCtx.lineTo(w / 2, h);
+        sCtx.moveTo(0, h / 2); sCtx.lineTo(w, h / 2);
+        sCtx.stroke();
+      }
+
+      const link = document.createElement('a');
+      link.download = 'posture_' + new Date().getTime() + '.png';
+      link.href = saveCanvas.toDataURL('image/png');
+      link.click();
+      statusText.innerText = "ガイド線付きで写真を保存しました！";
+    });
+
+    window.addEventListener('resize', drawGrid);
+    drawGrid();
   </script>
 </body>
 </html>
