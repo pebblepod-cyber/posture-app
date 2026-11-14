@@ -3,20 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>姿勢解析カメラ（完全検証済み版）</title>
+  <title>姿勢解析カメラ Ver.1.1</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #111; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
-    .header { padding: 8px; background: #1e1e1e; display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; z-index: 10; }
+    html, body { width: 100%; height: 100%; background: #111; color: #fff; font-family: sans-serif; overflow: hidden; }
+    body { display: flex; flex-direction: column; }
+    .header { flex-shrink: 0; padding: 8px; background: #1e1e1e; display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; z-index: 10; }
     button { padding: 9px 11px; font-size: 13px; border: none; border-radius: 8px; font-weight: bold; color: #fff; cursor: pointer; }
     #startBtn { background: #00c853; }
     #switchBtn { background: #2979ff; }
     #modeBtn { background: #ff9100; }
     #resetBtn { background: #607d8b; }
     #snapBtn { background: #e91e63; }
-    .viewer { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; background: #000; overflow: hidden; touch-action: none; }
-    video { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
-    canvas#overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    .viewer { position: relative; flex: 1; width: 100%; min-height: 200px; background: #000; overflow: hidden; touch-action: none; }
+    video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+    canvas#overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
     #status { width: 100%; text-align: center; font-size: 12px; color: #ffeb3b; margin-top: 4px; }
   </style>
 </head>
@@ -27,10 +28,10 @@
     <button id="modeBtn">モード：ガイド線</button>
     <button id="resetBtn">リセット</button>
     <button id="snapBtn">撮影保存</button>
-    <div id="status">【完全動作版】「カメラ開始」を押してください</div>
+    <div id="status">【Ver.1.1】「カメラ開始」を押してください</div>
   </div>
 
-  <div class="viewer">
+  <div class="viewer" id="viewer">
     <video id="video" playsinline muted autoplay></video>
     <canvas id="overlay"></canvas>
   </div>
@@ -38,6 +39,7 @@
   <script>
     const video = document.getElementById('video');
     const overlay = document.getElementById('overlay');
+    const viewer = document.getElementById('viewer');
     const ctx = overlay.getContext('2d');
     const statusText = document.getElementById('status');
     const modeBtn = document.getElementById('modeBtn');
@@ -149,8 +151,9 @@
     }
 
     function drawScreen() {
-      overlay.width = overlay.clientWidth;
-      overlay.height = overlay.clientHeight;
+      const rect = viewer.getBoundingClientRect();
+      overlay.width = rect.width || window.innerWidth;
+      overlay.height = rect.height || (window.innerHeight - 100);
       ctx.clearRect(0, 0, overlay.width, overlay.height);
       renderOverlay(ctx, overlay.width, overlay.height, 1);
     }
@@ -169,10 +172,10 @@
         if (!pt1 || (pt1 && pt2)) {
           pt1 = { x: rx, y: ry };
           pt2 = null;
-          statusText.innerText = "2点目をタップしてください";
+          statusText.innerText = "【Ver.1.1】2点目をタップしてください";
         } else {
           pt2 = { x: rx, y: ry };
-          statusText.innerText = "角度を計測しました（再タップでやり直し）";
+          statusText.innerText = "【Ver.1.1】角度を計測しました（再タップでやり直し）";
         }
         drawScreen();
       }
@@ -190,7 +193,7 @@
     overlay.addEventListener('pointercancel', function() { isDragging = false; });
 
     async function startCamera() {
-      statusText.innerText = "カメラを起動中...";
+      statusText.innerText = "【Ver.1.1】カメラを起動中...";
       if (stream) {
         stream.getTracks().forEach(function(t) { t.stop(); });
       }
@@ -204,14 +207,14 @@
         updateStatusGuide();
         drawScreen();
       } catch (err) {
-        statusText.innerText = "カメラエラー: " + err.message;
+        statusText.innerText = "【Ver.1.1】カメラエラー: " + err.message;
       }
     }
 
     function updateStatusGuide() {
-      if (currentMode === 'grid') statusText.innerText = "【ガイド線】画面をなぞって赤線を移動できます";
-      if (currentMode === 'angle') statusText.innerText = "【角度計測】左右の肩など2点をタップしてください";
-      if (currentMode === 'off') statusText.innerText = "【線なし】通常カメラ表示";
+      if (currentMode === 'grid') statusText.innerText = "【Ver.1.1】画面をなぞって赤線を移動できます";
+      if (currentMode === 'angle') statusText.innerText = "【Ver.1.1】左右の肩など2点をタップしてください";
+      if (currentMode === 'off') statusText.innerText = "【Ver.1.1】通常カメラ表示（線なし）";
     }
 
     document.getElementById('startBtn').addEventListener('click', startCamera);
@@ -244,20 +247,14 @@
       pt1 = null;
       pt2 = null;
       drawScreen();
-      statusText.innerText = "位置と計測点をリセットしました";
+      statusText.innerText = "【Ver.1.1】位置と計測点をリセットしました";
     });
 
     document.getElementById('snapBtn').addEventListener('click', function() {
       if (!video.videoWidth) {
-        statusText.innerText = "先に「カメラ開始」を押してください";
+        statusText.innerText = "【Ver.1.1】先に「カメラ開始」を押してください";
         return;
       }
       const saveCanvas = document.createElement('canvas');
       saveCanvas.width = video.videoWidth;
       saveCanvas.height = video.videoHeight;
-      const sCtx = saveCanvas.getContext('2d');
-      sCtx.drawImage(video, 0, 0, saveCanvas.width, saveCanvas.height);
-
-      const scale = Math.max(1, saveCanvas.width / 400);
-      renderOverlay(sCtx, saveCanvas.width, saveCanvas.height, scale);
-
