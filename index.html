@@ -3,32 +3,34 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>姿勢チェックカメラ</title>
+  <title>姿勢解析カメラ（完全スタンドアロン版）</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #111; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-    .header { padding: 10px; background: #1e1e1e; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; z-index: 10; }
-    button { padding: 10px 14px; font-size: 14px; border: none; border-radius: 6px; font-weight: bold; color: #fff; cursor: pointer; }
+    body { background: #111; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+    .header { padding: 8px; background: #1e1e1e; display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; z-index: 10; }
+    button { padding: 9px 11px; font-size: 13px; border: none; border-radius: 8px; font-weight: bold; color: #fff; cursor: pointer; }
     #startBtn { background: #00c853; }
     #switchBtn { background: #2979ff; }
-    #gridBtn { background: #ff9100; }
+    #modeBtn { background: #ff9100; }
+    #resetBtn { background: #607d8b; }
     #snapBtn { background: #e91e63; }
-    .viewer { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; background: #000; overflow: hidden; }
-    video { width: 100%; height: 100%; object-fit: contain; }
-    canvas#overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    .viewer { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; background: #000; overflow: hidden; touch-action: none; }
+    video { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+    canvas#overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
     #status { width: 100%; text-align: center; font-size: 12px; color: #ffeb3b; margin-top: 4px; }
   </style>
 </head>
 <body>
   <div class="header">
     <button id="startBtn">カメラ開始</button>
-    <button id="switchBtn">カメラ切替</button>
-    <button id="gridBtn">ガイド線 ON/OFF</button>
-    <button id="snapBtn">写真保存</button>
-    <div id="status">【外部通信ゼロ版】「カメラ開始」を押してください</div>
+    <button id="switchBtn">切替</button>
+    <button id="modeBtn">モード：ガイド線</button>
+    <button id="resetBtn">リセット</button>
+    <button id="snapBtn">撮影保存</button>
+    <div id="status">「カメラ開始」を押してください（外部通信ゼロ版）</div>
   </div>
 
-  <div class="viewer" id="viewer">
+  <div class="viewer">
     <video id="video" playsinline muted autoplay></video>
     <canvas id="overlay"></canvas>
   </div>
@@ -38,38 +40,169 @@
     const overlay = document.getElementById('overlay');
     const ctx = overlay.getContext('2d');
     const statusText = document.getElementById('status');
+    const modeBtn = document.getElementById('modeBtn');
+
     let useFront = false;
     let stream = null;
-    let showGrid = true;
+    // モード: 'grid'（ガイド線移動）, 'angle'（2点タップ角度計測）, 'off'（線なし）
+    let currentMode = 'grid';
 
-    function drawGrid() {
-      overlay.width = overlay.clientWidth;
-      overlay.height = overlay.clientHeight;
-      const w = overlay.width;
-      const h = overlay.height;
-      ctx.clearRect(0, 0, w, h);
-      if (!showGrid) return;
+    // ガイド線中心（割合）
+    let centerXRatio = 0.5;
+    let centerYRatio = 0.5;
+    let isDragging = false;
 
-      // 細かいマス目（薄い白線）
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-      ctx.lineWidth = 1;
-      const step = 40;
-      for (let x = w / 2; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
-      for (let x = w / 2; x > 0; x -= step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
-      for (let y = h / 2; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
-      for (let y = h / 2; y > 0; y -= step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+    // 角度計測用ポイント（割合の配列: 最大2点）
+    let points = [];
 
-      // 中心の十字線（赤線：体の軸・肩の高さ確認用）
-      ctx.strokeStyle = 'rgba(255, 50, 50, 0.85)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h);
-      ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
-      ctx.stroke();
+    function renderOverlay(targetCtx, w, h, scaleFactor = 1) {
+      if (currentMode === 'off') return;
+
+      if (currentMode === 'grid') {
+        const cx = w * centerXRatio;
+        const cy = h * centerYRatio;
+
+        // マス目（薄い白線）
+        targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        targetCtx.lineWidth = 1 * scaleFactor;
+        const step = 40 * scaleFactor;
+        for (let x = cx; x < w; x += step) { targetCtx.beginPath(); targetCtx.moveTo(x, 0); targetCtx.lineTo(x, h); targetCtx.stroke(); }
+        for (let x = cx; x > 0; x -= step) { targetCtx.beginPath(); targetCtx.moveTo(x, 0); targetCtx.lineTo(x, h); targetCtx.stroke(); }
+        for (let y = cy; y < h; y += step) { targetCtx.beginPath(); targetCtx.moveTo(0, y); targetCtx.lineTo(w, y); targetCtx.stroke(); }
+        for (let y = cy; y > 0; y -= step) { targetCtx.beginPath(); targetCtx.moveTo(0, y); targetCtx.lineTo(w, y); targetCtx.stroke(); }
+
+        // 中心の十字線（赤線）
+        targetCtx.strokeStyle = 'rgba(255, 50, 50, 0.9)';
+        targetCtx.lineWidth = 2 * scaleFactor;
+        targetCtx.beginPath();
+        targetCtx.moveTo(cx, 0); targetCtx.lineTo(cx, h);
+        targetCtx.moveTo(0, cy); targetCtx.lineTo(w, cy);
+        targetCtx.stroke();
+
+        // 中心の丸印
+        targetCtx.beginPath();
+        targetCtx.arc(cx, cy, 12 * scaleFactor, 0, Math.PI * 2);
+        targetCtx.stroke();
+      }
+
+      if (currentMode === 'angle') {
+        // タップした点の描画
+        points.forEach((pt, idx) => {
+          const px = pt.x * w;
+          const py = pt.y * h;
+          targetCtx.fillStyle = '#00e676';
+          targetCtx.beginPath();
+          targetCtx.arc(px, py, 8 * scaleFactor, 0, Math.PI * 2);
+          targetCtx.fill();
+
+          targetCtx.strokeStyle = '#fff';
+          targetCtx.lineWidth = 2 * scaleFactor;
+          targetCtx.stroke();
+        });
+
+        // 2点揃ったら線と角度を描画
+        if (points.length === 2) {
+          const p1x = points[0].x * w;
+          const p1y = points[0].y * h;
+          const p2x = points[1].x * w;
+          const p2y = points[1].y * h;
+
+          // 2点を結ぶ黄色い線
+          targetCtx.strokeStyle = '#ffea00';
+          targetCtx.lineWidth = 3 * scaleFactor;
+          targetCtx.beginPath();
+          targetCtx.moveTo(p1x, p1y);
+          targetCtx.lineTo(p2x, p2y);
+          targetCtx.stroke();
+
+          // 基準となる水平の点線
+          targetCtx.setLineDash([6 * scaleFactor, 6 * scaleFactor]);
+          targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+          targetCtx.lineWidth = 1.5 * scaleFactor;
+          targetCtx.beginPath();
+          targetCtx.moveTo(Math.min(p1x, p2x) - 30 * scaleFactor, p1y);
+          targetCtx.lineTo(Math.max(p1x, p2x) + 30 * scaleFactor, p1y);
+          targetCtx.stroke();
+          targetCtx.setLineDash([]);
+
+          // 角度計算（水平からの傾き、または垂直からの傾きを自動判定）
+          const dx = Math.abs(p2x - p1x);
+          const dy = Math.abs(p2y - p1y);
+          let angleDeg = 0;
+          let labelType = "";
+          if (dx >= dy) {
+            // 横に近い2点（左右の肩・骨盤など）→ 水平からの傾き
+            angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+            labelType = "水平傾き";
+          } else {
+            // 縦に近い2点（首・背骨など）→ 垂直からの傾き
+            angleDeg = Math.atan2(dx, dy) * (180 / Math.PI);
+            labelType = "垂直傾き";
+          }
+
+          const text = `${labelType}: ${angleDeg.toFixed(1)}°`;
+          const midX = (p1x + p2x) / 2;
+          const midY = (p1y + p2y) / 2 - (20 * scaleFactor);
+
+          targetCtx.font = `bold ${16 * scaleFactor}px sans-serif`;
+          const textWidth = targetCtx.measureText(text).width;
+          targetCtx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+          targetCtx.fillRect(midX - textWidth / 2 - 8 * scaleFactor, midY - 18 * scaleFactor, textWidth + 16 * scaleFactor, 26 * scaleFactor);
+
+          targetCtx.fillStyle = '#ffea00';
+          targetCtx.textAlign = 'center';
+          targetCtx.fillText(text, midX, midY);
+        }
+      }
     }
 
+    function drawScreen() {
+      overlay.width = overlay.clientWidth;
+      overlay.height = overlay.clientHeight;
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      renderOverlay(ctx, overlay.width, overlay.height, 1);
+    }
+
+    // タッチ・クリック操作
+    overlay.addEventListener('pointerdown', (e) => {
+      const rect = overlay.getBoundingClientRect();
+      const rx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const ry = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+
+      if (currentMode === 'grid') {
+        isDragging = true;
+        centerXRatio = rx;
+        centerYRatio = ry;
+        drawScreen();
+      } else if (currentMode === 'angle') {
+        if (points.length >= 2) {
+          points = [{ x: rx, y: ry }];
+          statusText.innerText = "2点目をタップしてください";
+        } else {
+          points.push({ x: rx, y: ry });
+          if (points.length === 1) {
+            statusText.innerText = "2点目をタップしてください";
+          } else {
+            statusText.innerText = "角度を計測しました（再タップでやり直し）";
+          }
+        }
+        drawScreen();
+      }
+    });
+
+    overlay.addEventListener('pointermove', (e) => {
+      if (!isDragging || currentMode !== 'grid') return;
+      const rect = overlay.getBoundingClientRect();
+      centerXRatio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      centerYRatio = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      drawScreen();
+    });
+
+    overlay.addEventListener('pointerup', () => { isDragging = false; });
+    overlay.addEventListener('pointercancel', () => { isDragging = false; });
+
     async function startCamera() {
-      statusText.innerText = "カメラ起動中...";
+      statusText.innerText = "カメラを起動中...";
       if (stream) {
         stream.getTracks().forEach(t => t.stop());
       }
@@ -80,56 +213,52 @@
         });
         video.srcObject = stream;
         await video.play();
-        statusText.innerText = "稼働中（赤線を体の中心・肩の高さに合わせてください）";
-        drawGrid();
+        updateStatusGuide();
+        drawScreen();
       } catch (err) {
         statusText.innerText = "カメラエラー: " + err.message;
       }
     }
 
+    function updateStatusGuide() {
+      if (currentMode === 'grid') statusText.innerText = "【ガイド線】画面をなぞって赤線を移動できます";
+      if (currentMode === 'angle') statusText.innerText = "【角度計測】左右の肩など2点をタップしてください";
+      if (currentMode === 'off') statusText.innerText = "【線なし】通常カメラ表示";
+    }
+
     document.getElementById('startBtn').addEventListener('click', startCamera);
-    
-    document.getElementById('switchBtn').addEventListener('click', () => {
-      useFront = !useFront;
-      startCamera();
+    document.getElementById('switchBtn').addEventListener('click', () => { useFront = !useFront; startCamera(); });
+
+    modeBtn.addEventListener('click', () => {
+      if (currentMode === 'grid') {
+        currentMode = 'angle';
+        modeBtn.innerText = "モード：角度計測";
+        modeBtn.style.background = "#00bfa5";
+      } else if (currentMode === 'angle') {
+        currentMode = 'off';
+        modeBtn.innerText = "モード：線なし";
+        modeBtn.style.background = "#757575";
+      } else {
+        currentMode = 'grid';
+        modeBtn.innerText = "モード：ガイド線";
+        modeBtn.style.background = "#ff9100";
+      }
+      updateStatusGuide();
+      drawScreen();
     });
 
-    document.getElementById('gridBtn').addEventListener('click', () => {
-      showGrid = !showGrid;
-      drawGrid();
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      centerXRatio = 0.5;
+      centerYRatio = 0.5;
+      points = [];
+      drawScreen();
+      statusText.innerText = "位置と計測点をリセットしました";
     });
 
     document.getElementById('snapBtn').addEventListener('click', () => {
       if (!video.videoWidth) {
-        statusText.innerText = "先にカメラを開始してください";
+        statusText.innerText = "先に「カメラ開始」を押してください";
         return;
       }
       const saveCanvas = document.createElement('canvas');
       saveCanvas.width = video.videoWidth;
-      saveCanvas.height = video.videoHeight;
-      const sCtx = saveCanvas.getContext('2d');
-      sCtx.drawImage(video, 0, 0, saveCanvas.width, saveCanvas.height);
-
-      if (showGrid) {
-        const w = saveCanvas.width;
-        const h = saveCanvas.height;
-        sCtx.strokeStyle = 'rgba(255, 50, 50, 0.85)';
-        sCtx.lineWidth = Math.max(3, w / 200);
-        sCtx.beginPath();
-        sCtx.moveTo(w / 2, 0); sCtx.lineTo(w / 2, h);
-        sCtx.moveTo(0, h / 2); sCtx.lineTo(w, h / 2);
-        sCtx.stroke();
-      }
-
-      const link = document.createElement('a');
-      link.download = 'posture_' + new Date().getTime() + '.png';
-      link.href = saveCanvas.toDataURL('image/png');
-      link.click();
-      statusText.innerText = "ガイド線付きで写真を保存しました！";
-    });
-
-    window.addEventListener('resize', drawGrid);
-    drawGrid();
-  </script>
-</body>
-</html>
