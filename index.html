@@ -17,49 +17,26 @@
 </head>
 <body>
   <div class="controls">
-    <button id="startBtn">カメラを開始</button>
-    <button id="switchBtn">前面 / 背面 切替</button>
-    <div id="status">準備中...（数秒お待ちください）</div>
+    <button id="startBtn" onclick="startCamera()">カメラを開始</button>
+    <button id="switchBtn" onclick="switchCamera()">前面 / 背面 切替</button>
+    <div id="status">準備完了！「カメラを開始」を押してください</div>
   </div>
   <div class="container">
     <video id="video" playsinline muted autoplay></video>
     <canvas id="canvas"></canvas>
   </div>
 
-  <script type="module">
-    import { PoseLandmarker, FilesetResolver, DrawingUtils } from "https://jsdelivr.net";
-
+  <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const statusText = document.getElementById('status');
-    let poseLandmarker = null;
     let useFrontCamera = false;
     let currentStream = null;
+    let poseLandmarker = null;
     let isRunning = false;
 
-    async function initAI() {
-      try {
-        const vision = await FilesetResolver.forVisionTasks("https://jsdelivr.net/wasm");
-        poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: "https://googleapis.com",
-            delegate: "GPU"
-          },
-          runningMode: "VIDEO",
-          numPoses: 1
-        });
-        statusText.innerText = "準備完了！「カメラを開始」を押してください";
-      } catch (e) {
-        statusText.innerText = "AI読込エラー: " + e.message;
-      }
-    }
-
     async function startCamera() {
-      if (!poseLandmarker) {
-        statusText.innerText = "まだAIを準備中です。数秒後にもう一度押してください";
-        return;
-      }
       statusText.innerText = "カメラを起動中...";
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
@@ -72,18 +49,48 @@
         currentStream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = currentStream;
         await video.play();
+        statusText.innerText = "カメラ起動成功！骨格AIを読み込み中...";
+        if (!poseLandmarker) {
+          loadAI();
+        }
+      } catch (err) {
+        statusText.innerText = "カメラエラー: " + err.name + " - " + err.message;
+      }
+    }
+
+    function switchCamera() {
+      useFrontCamera = !useFrontCamera;
+      startCamera();
+    }
+
+    async function loadAI() {
+      try {
+        const visionModule = await import("https://jsdelivr.net");
+        const { PoseLandmarker, FilesetResolver, DrawingUtils } = visionModule;
+        const vision = await FilesetResolver.forVisionTasks("https://jsdelivr.net");
+        poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: "https://googleapis.com",
+            delegate: "CPU"
+          },
+          runningMode: "VIDEO",
+          numPoses: 1
+        });
+        window.DrawingUtils = DrawingUtils;
+        window.PoseLandmarker = PoseLandmarker;
+        statusText.innerText = "骨格AI準備完了！人を映してください";
         if (!isRunning) {
           isRunning = true;
           detectFrame();
         }
-      } catch (err) {
-        statusText.innerText = "カメラエラー: " + err.message;
+      } catch (e) {
+        statusText.innerText = "AI読込エラー: " + e.message;
       }
     }
 
     let lastVideoTime = -1;
     function detectFrame() {
-      if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+      if (poseLandmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
         lastVideoTime = video.currentTime;
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
@@ -92,26 +99,16 @@
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (results.landmarks && results.landmarks.length > 0) {
           statusText.innerText = "骨格を検知中！";
-          const drawingUtils = new DrawingUtils(ctx);
+          const drawingUtils = new window.DrawingUtils(ctx);
           for (const landmark of results.landmarks) {
-            drawingUtils.drawConnectors(landmark, PoseLandmarker.POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
+            drawingUtils.drawConnectors(landmark, window.PoseLandmarker.POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
             drawingUtils.drawLandmarks(landmark, { color: '#FF0000', lineWidth: 2, radius: 4 });
           }
-        } else {
-          statusText.innerText = "カメラに人を映してください";
         }
         ctx.restore();
       }
       requestAnimationFrame(detectFrame);
     }
-
-    document.getElementById('startBtn').addEventListener('click', startCamera);
-    document.getElementById('switchBtn').addEventListener('click', () => {
-      useFrontCamera = !useFrontCamera;
-      startCamera();
-    });
-
-    initAI();
   </script>
 </body>
 </html>
