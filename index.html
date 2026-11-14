@@ -27,7 +27,7 @@
     <button id="modeBtn">モード：ガイド線</button>
     <button id="resetBtn">リセット</button>
     <button id="snapBtn">撮影保存</button>
-    <div id="status">「カメラ開始」を押してください（外部通信ゼロ版）</div>
+    <div id="status">「カメラ開始」を押してください（修正完了版）</div>
   </div>
 
   <div class="viewer">
@@ -44,15 +44,12 @@
 
     let useFront = false;
     let stream = null;
-    // モード: 'grid'（ガイド線移動）, 'angle'（2点タップ角度計測）, 'off'（線なし）
     let currentMode = 'grid';
 
-    // ガイド線中心（割合）
     let centerXRatio = 0.5;
     let centerYRatio = 0.5;
     let isDragging = false;
 
-    // 角度計測用ポイント（割合の配列: 最大2点）
     let points = [];
 
     function renderOverlay(targetCtx, w, h, scaleFactor = 1) {
@@ -62,7 +59,6 @@
         const cx = w * centerXRatio;
         const cy = h * centerYRatio;
 
-        // マス目（薄い白線）
         targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
         targetCtx.lineWidth = 1 * scaleFactor;
         const step = 40 * scaleFactor;
@@ -71,7 +67,6 @@
         for (let y = cy; y < h; y += step) { targetCtx.beginPath(); targetCtx.moveTo(0, y); targetCtx.lineTo(w, y); targetCtx.stroke(); }
         for (let y = cy; y > 0; y -= step) { targetCtx.beginPath(); targetCtx.moveTo(0, y); targetCtx.lineTo(w, y); targetCtx.stroke(); }
 
-        // 中心の十字線（赤線）
         targetCtx.strokeStyle = 'rgba(255, 50, 50, 0.9)';
         targetCtx.lineWidth = 2 * scaleFactor;
         targetCtx.beginPath();
@@ -79,15 +74,13 @@
         targetCtx.moveTo(0, cy); targetCtx.lineTo(w, cy);
         targetCtx.stroke();
 
-        // 中心の丸印
         targetCtx.beginPath();
         targetCtx.arc(cx, cy, 12 * scaleFactor, 0, Math.PI * 2);
         targetCtx.stroke();
       }
 
       if (currentMode === 'angle') {
-        // タップした点の描画
-        points.forEach((pt, idx) => {
+        points.forEach((pt) => {
           const px = pt.x * w;
           const py = pt.y * h;
           targetCtx.fillStyle = '#00e676';
@@ -100,14 +93,12 @@
           targetCtx.stroke();
         });
 
-        // 2点揃ったら線と角度を描画
         if (points.length === 2) {
           const p1x = points[0].x * w;
           const p1y = points[0].y * h;
           const p2x = points[1].x * w;
           const p2y = points[1].y * h;
 
-          // 2点を結ぶ黄色い線
           targetCtx.strokeStyle = '#ffea00';
           targetCtx.lineWidth = 3 * scaleFactor;
           targetCtx.beginPath();
@@ -115,7 +106,6 @@
           targetCtx.lineTo(p2x, p2y);
           targetCtx.stroke();
 
-          // 基準となる水平の点線
           targetCtx.setLineDash([6 * scaleFactor, 6 * scaleFactor]);
           targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
           targetCtx.lineWidth = 1.5 * scaleFactor;
@@ -125,17 +115,14 @@
           targetCtx.stroke();
           targetCtx.setLineDash([]);
 
-          // 角度計算（水平からの傾き、または垂直からの傾きを自動判定）
           const dx = Math.abs(p2x - p1x);
           const dy = Math.abs(p2y - p1y);
           let angleDeg = 0;
           let labelType = "";
           if (dx >= dy) {
-            // 横に近い2点（左右の肩・骨盤など）→ 水平からの傾き
             angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
             labelType = "水平傾き";
           } else {
-            // 縦に近い2点（首・背骨など）→ 垂直からの傾き
             angleDeg = Math.atan2(dx, dy) * (180 / Math.PI);
             labelType = "垂直傾き";
           }
@@ -163,7 +150,6 @@
       renderOverlay(ctx, overlay.width, overlay.height, 1);
     }
 
-    // タッチ・クリック操作
     overlay.addEventListener('pointerdown', (e) => {
       const rect = overlay.getBoundingClientRect();
       const rx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -262,3 +248,12 @@
       }
       const saveCanvas = document.createElement('canvas');
       saveCanvas.width = video.videoWidth;
+      saveCanvas.height = video.videoHeight;
+      const sCtx = saveCanvas.getContext('2d');
+      sCtx.drawImage(video, 0, 0, saveCanvas.width, saveCanvas.height);
+
+      const scale = Math.max(1, saveCanvas.width / 400);
+      renderOverlay(sCtx, saveCanvas.width, saveCanvas.height, scale);
+
+      const link = document.createElement('a');
+      link.download = 'posture_' + new Date().getTime() + '.png';
