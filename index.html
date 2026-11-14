@@ -3,26 +3,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>姿勢解析テスト</title>
+  <title>姿勢解析アプリ</title>
   <style>
     body { margin: 0; background: #111; color: #fff; font-family: sans-serif; text-align: center; }
     .container { position: relative; width: 100vw; max-width: 600px; margin: 0 auto; }
     video, canvas { width: 100%; height: auto; display: block; border-radius: 8px; }
     canvas { position: absolute; top: 0; left: 0; }
-    .controls { padding: 15px; }
-    button { padding: 12px 24px; font-size: 16px; border: none; border-radius: 8px; background: #00c853; color: #fff; font-weight: bold; cursor: pointer; }
-    #status { margin-top: 10px; font-size: 14px; color: #aaa; }
+    .controls { padding: 15px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    button { padding: 12px 20px; font-size: 16px; border: none; border-radius: 8px; background: #00c853; color: #fff; font-weight: bold; cursor: pointer; }
+    button#switchBtn { background: #2979ff; }
+    #status { width: 100%; margin-top: 8px; font-size: 14px; color: #ffeb3b; }
   </style>
   <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
   <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
 </head>
 <body>
   <div class="controls">
-    <button id="switchBtn">カメラ切り替え（前面 / 背面）</button>
-    <div id="status">AIモデルを読み込み中...</div>
+    <button id="startBtn">カメラを開始</button>
+    <button id="switchBtn">前面 / 背面 切替</button>
+    <div id="status">「カメラを開始」ボタンを押してください</div>
   </div>
   <div class="container">
-    <video id="video" playsinline muted></video>
+    <video id="video" playsinline muted autoplay></video>
     <canvas id="canvas"></canvas>
   </div>
 
@@ -33,6 +35,7 @@
     const statusText = document.getElementById('status');
     let useFrontCamera = false;
     let currentStream = null;
+    let isRunning = false;
 
     const pose = new Pose({
       locateFile: (file) => `https://jsdelivr.net{file}`
@@ -40,8 +43,10 @@
     pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
     pose.onResults((results) => {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      if (video.videoWidth > 0) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
       ctx.save();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (results.poseLandmarks) {
@@ -55,6 +60,7 @@
     });
 
     async function startCamera() {
+      statusText.innerText = "カメラとAIを準備中...";
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
       }
@@ -65,28 +71,28 @@
       try {
         currentStream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = currentStream;
-        video.onloadedmetadata = () => {
-          video.play();
+        await video.play();
+        if (!isRunning) {
+          isRunning = true;
           detectFrame();
-        };
+        }
       } catch (err) {
-        statusText.innerText = "カメラの起動に失敗しました: " + err.message;
+        statusText.innerText = "カメラエラー: " + err.message;
       }
     }
 
     async function detectFrame() {
-      if (!video.paused && !video.ended) {
+      if (video.readyState >= 2) {
         await pose.send({ image: video });
       }
       requestAnimationFrame(detectFrame);
     }
 
+    document.getElementById('startBtn').addEventListener('click', startCamera);
     document.getElementById('switchBtn').addEventListener('click', () => {
       useFrontCamera = !useFrontCamera;
       startCamera();
     });
-
-    startCamera();
   </script>
 </body>
 </html>
