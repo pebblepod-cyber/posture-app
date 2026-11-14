@@ -17,8 +17,8 @@
 </head>
 <body>
   <div class="controls">
-    <button id="startBtn" onclick="startCamera()">カメラを開始</button>
-    <button id="switchBtn" onclick="switchCamera()">前面 / 背面 切替</button>
+    <button id="startBtn">カメラを開始</button>
+    <button id="switchBtn">前面 / 背面 切替</button>
     <div id="status">準備完了！「カメラを開始」を押してください</div>
   </div>
   <div class="container">
@@ -26,7 +26,9 @@
     <canvas id="canvas"></canvas>
   </div>
 
-  <script>
+  <script type="module">
+    import { PoseLandmarker, FilesetResolver, DrawingUtils } from "https://esm.sh";
+
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
@@ -35,6 +37,29 @@
     let currentStream = null;
     let poseLandmarker = null;
     let isRunning = false;
+
+    async function initAI() {
+      if (poseLandmarker) return;
+      try {
+        statusText.innerText = "骨格AIモデルを読み込み中...";
+        const vision = await FilesetResolver.forVisionTasks("https://jsdelivr.net");
+        poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: "https://googleapis.com",
+            delegate: "CPU"
+          },
+          runningMode: "VIDEO",
+          numPoses: 1
+        });
+        statusText.innerText = "骨格AI準備完了！人を映してください";
+        if (!isRunning) {
+          isRunning = true;
+          detectFrame();
+        }
+      } catch (e) {
+        statusText.innerText = "AI初期化エラー: " + e.message;
+      }
+    }
 
     async function startCamera() {
       statusText.innerText = "カメラを起動中...";
@@ -49,44 +74,17 @@
         currentStream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = currentStream;
         await video.play();
-        statusText.innerText = "カメラ起動成功！骨格AIを読み込み中...";
-        if (!poseLandmarker) {
-          loadAI();
-        }
+        await initAI();
       } catch (err) {
-        statusText.innerText = "カメラエラー: " + err.name + " - " + err.message;
+        statusText.innerText = "カメラエラー: " + err.message;
       }
     }
 
-    function switchCamera() {
+    document.getElementById('startBtn').addEventListener('click', startCamera);
+    document.getElementById('switchBtn').addEventListener('click', () => {
       useFrontCamera = !useFrontCamera;
       startCamera();
-    }
-
-    async function loadAI() {
-      try {
-        const visionModule = await import("https://jsdelivr.net");
-        const { PoseLandmarker, FilesetResolver, DrawingUtils } = visionModule;
-        const vision = await FilesetResolver.forVisionTasks("https://jsdelivr.net");
-        poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: "https://googleapis.com",
-            delegate: "CPU"
-          },
-          runningMode: "VIDEO",
-          numPoses: 1
-        });
-        window.DrawingUtils = DrawingUtils;
-        window.PoseLandmarker = PoseLandmarker;
-        statusText.innerText = "骨格AI準備完了！人を映してください";
-        if (!isRunning) {
-          isRunning = true;
-          detectFrame();
-        }
-      } catch (e) {
-        statusText.innerText = "AI読込エラー: " + e.message;
-      }
-    }
+    });
 
     let lastVideoTime = -1;
     function detectFrame() {
@@ -99,9 +97,9 @@
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (results.landmarks && results.landmarks.length > 0) {
           statusText.innerText = "骨格を検知中！";
-          const drawingUtils = new window.DrawingUtils(ctx);
+          const drawingUtils = new DrawingUtils(ctx);
           for (const landmark of results.landmarks) {
-            drawingUtils.drawConnectors(landmark, window.PoseLandmarker.POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
+            drawingUtils.drawConnectors(landmark, PoseLandmarker.POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
             drawingUtils.drawLandmarks(landmark, { color: '#FF0000', lineWidth: 2, radius: 4 });
           }
         }
