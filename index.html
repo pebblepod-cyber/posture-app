@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>姿勢解析カメラ Ver.1.1</title>
+  <title>姿勢解析カメラ Ver.1.2</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; background: #111; color: #fff; font-family: sans-serif; overflow: hidden; }
@@ -16,49 +16,49 @@
     #resetBtn { background: #607d8b; }
     #snapBtn { background: #e91e63; }
     .viewer { position: relative; flex: 1; width: 100%; min-height: 200px; background: #000; overflow: hidden; touch-action: none; }
-    video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
-    canvas#overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
+    video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; z-index: 1; }
+    canvas#overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; z-index: 2; }
     #status { width: 100%; text-align: center; font-size: 12px; color: #ffeb3b; margin-top: 4px; }
   </style>
 </head>
 <body>
   <div class="header">
-    <button id="startBtn">カメラ開始</button>
-    <button id="switchBtn">切替</button>
-    <button id="modeBtn">モード：ガイド線</button>
-    <button id="resetBtn">リセット</button>
-    <button id="snapBtn">撮影保存</button>
-    <div id="status">【Ver.1.1】「カメラ開始」を押してください</div>
+    <button id="startBtn" type="button">カメラ開始</button>
+    <button id="switchBtn" type="button">切替</button>
+    <button id="modeBtn" type="button">モード：ガイド線</button>
+    <button id="resetBtn" type="button">リセット</button>
+    <button id="snapBtn" type="button">撮影保存</button>
+    <div id="status">【Ver.1.2】「カメラ開始」を押してください</div>
   </div>
 
   <div class="viewer" id="viewer">
-    <video id="video" playsinline muted autoplay></video>
+    <video id="video" playsinline muted></video>
     <canvas id="overlay"></canvas>
   </div>
 
   <script>
-    const video = document.getElementById('video');
-    const overlay = document.getElementById('overlay');
-    const viewer = document.getElementById('viewer');
-    const ctx = overlay.getContext('2d');
-    const statusText = document.getElementById('status');
-    const modeBtn = document.getElementById('modeBtn');
+    var video = document.getElementById('video');
+    var overlay = document.getElementById('overlay');
+    var viewer = document.getElementById('viewer');
+    var ctx = overlay.getContext('2d');
+    var statusText = document.getElementById('status');
+    var modeBtn = document.getElementById('modeBtn');
 
-    let useFront = false;
-    let stream = null;
-    let currentMode = 'grid';
+    var useFront = false;
+    var stream = null;
+    var currentMode = 'grid';
 
-    let centerXRatio = 0.5;
-    let centerYRatio = 0.5;
-    let isDragging = false;
+    var centerXRatio = 0.5;
+    var centerYRatio = 0.5;
+    var isDragging = false;
 
-    let pt1 = null;
-    let pt2 = null;
+    var pt1 = null;
+    var pt2 = null;
 
     function drawPoint(targetCtx, pt, w, h, scaleFactor) {
       if (!pt) return;
-      const px = pt.x * w;
-      const py = pt.y * h;
+      var px = pt.x * w;
+      var py = pt.y * h;
       targetCtx.fillStyle = '#00e676';
       targetCtx.beginPath();
       targetCtx.arc(px, py, 8 * scaleFactor, 0, Math.PI * 2);
@@ -73,18 +73,18 @@
       if (currentMode === 'off') return;
 
       if (currentMode === 'grid') {
-        const cx = w * centerXRatio;
-        const cy = h * centerYRatio;
+        var cx = w * centerXRatio;
+        var cy = h * centerYRatio;
 
-        targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
         targetCtx.lineWidth = 1 * scaleFactor;
-        const step = 40 * scaleFactor;
-        for (let x = cx; x < w; x += step) { targetCtx.beginPath(); targetCtx.moveTo(x, 0); targetCtx.lineTo(x, h); targetCtx.stroke(); }
-        for (let x = cx; x > 0; x -= step) { targetCtx.beginPath(); targetCtx.moveTo(x, 0); targetCtx.lineTo(x, h); targetCtx.stroke(); }
-        for (let y = cy; y < h; y += step) { targetCtx.beginPath(); targetCtx.moveTo(0, y); targetCtx.lineTo(w, y); targetCtx.stroke(); }
-        for (let y = cy; y > 0; y -= step) { targetCtx.beginPath(); targetCtx.moveTo(0, y); targetCtx.lineTo(w, y); targetCtx.stroke(); }
+        var step = 40 * scaleFactor;
+        for (var x = cx; x < w; x += step) { targetCtx.beginPath(); targetCtx.moveTo(x, 0); targetCtx.lineTo(x, h); targetCtx.stroke(); }
+        for (var x = cx; x > 0; x -= step) { targetCtx.beginPath(); targetCtx.moveTo(x, 0); targetCtx.lineTo(x, h); targetCtx.stroke(); }
+        for (var y = cy; y < h; y += step) { targetCtx.beginPath(); targetCtx.moveTo(0, y); targetCtx.lineTo(w, y); targetCtx.stroke(); }
+        for (var y = cy; y > 0; y -= step) { targetCtx.beginPath(); targetCtx.moveTo(0, y); targetCtx.lineTo(w, y); targetCtx.stroke(); }
 
-        targetCtx.strokeStyle = 'rgba(255, 50, 50, 0.9)';
+        targetCtx.strokeStyle = 'rgba(255, 50, 50, 0.95)';
         targetCtx.lineWidth = 2 * scaleFactor;
         targetCtx.beginPath();
         targetCtx.moveTo(cx, 0); targetCtx.lineTo(cx, h);
@@ -101,10 +101,10 @@
         drawPoint(targetCtx, pt2, w, h, scaleFactor);
 
         if (pt1 && pt2) {
-          const p1x = pt1.x * w;
-          const p1y = pt1.y * h;
-          const p2x = pt2.x * w;
-          const p2y = pt2.y * h;
+          var p1x = pt1.x * w;
+          var p1y = pt1.y * h;
+          var p2x = pt2.x * w;
+          var p2y = pt2.y * h;
 
           targetCtx.strokeStyle = '#ffea00';
           targetCtx.lineWidth = 3 * scaleFactor;
@@ -122,10 +122,10 @@
           targetCtx.stroke();
           targetCtx.setLineDash([]);
 
-          const dx = Math.abs(p2x - p1x);
-          const dy = Math.abs(p2y - p1y);
-          let angleDeg = 0;
-          let labelType = "";
+          var dx = Math.abs(p2x - p1x);
+          var dy = Math.abs(p2y - p1y);
+          var angleDeg = 0;
+          var labelType = "";
           if (dx >= dy) {
             angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
             labelType = "水平傾き";
@@ -134,12 +134,12 @@
             labelType = "垂直傾き";
           }
 
-          const text = labelType + ": " + angleDeg.toFixed(1) + "°";
-          const midX = (p1x + p2x) / 2;
-          const midY = (p1y + p2y) / 2 - (20 * scaleFactor);
+          var text = labelType + ": " + angleDeg.toFixed(1) + "°";
+          var midX = (p1x + p2x) / 2;
+          var midY = (p1y + p2y) / 2 - (20 * scaleFactor);
 
           targetCtx.font = "bold " + Math.round(16 * scaleFactor) + "px sans-serif";
-          const textWidth = targetCtx.measureText(text).width;
+          var textWidth = targetCtx.measureText(text).width;
           targetCtx.fillStyle = 'rgba(0, 0, 0, 0.75)';
           targetCtx.fillRect(midX - textWidth / 2 - 8 * scaleFactor, midY - 18 * scaleFactor, textWidth + 16 * scaleFactor, 26 * scaleFactor);
 
@@ -151,7 +151,7 @@
     }
 
     function drawScreen() {
-      const rect = viewer.getBoundingClientRect();
+      var rect = viewer.getBoundingClientRect();
       overlay.width = rect.width || window.innerWidth;
       overlay.height = rect.height || (window.innerHeight - 100);
       ctx.clearRect(0, 0, overlay.width, overlay.height);
@@ -159,9 +159,9 @@
     }
 
     overlay.addEventListener('pointerdown', function(e) {
-      const rect = overlay.getBoundingClientRect();
-      const rx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      const ry = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      var rect = overlay.getBoundingClientRect();
+      var rx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      var ry = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
 
       if (currentMode === 'grid') {
         isDragging = true;
@@ -172,10 +172,10 @@
         if (!pt1 || (pt1 && pt2)) {
           pt1 = { x: rx, y: ry };
           pt2 = null;
-          statusText.innerText = "【Ver.1.1】2点目をタップしてください";
+          statusText.innerText = "【Ver.1.2】2点目をタップしてください";
         } else {
           pt2 = { x: rx, y: ry };
-          statusText.innerText = "【Ver.1.1】角度を計測しました（再タップでやり直し）";
+          statusText.innerText = "【Ver.1.2】角度を計測しました（再タップでやり直し）";
         }
         drawScreen();
       }
@@ -183,7 +183,7 @@
 
     overlay.addEventListener('pointermove', function(e) {
       if (!isDragging || currentMode !== 'grid') return;
-      const rect = overlay.getBoundingClientRect();
+      var rect = overlay.getBoundingClientRect();
       centerXRatio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       centerYRatio = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
       drawScreen();
@@ -192,29 +192,38 @@
     overlay.addEventListener('pointerup', function() { isDragging = false; });
     overlay.addEventListener('pointercancel', function() { isDragging = false; });
 
-    async function startCamera() {
-      statusText.innerText = "【Ver.1.1】カメラを起動中...";
+    function startCamera() {
+      statusText.innerText = "【Ver.1.2】カメラ許可を要求中...";
       if (stream) {
         stream.getTracks().forEach(function(t) { t.stop(); });
       }
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: useFront ? "user" : "environment" },
-          audio: false
-        });
-        video.srcObject = stream;
-        await video.play();
-        updateStatusGuide();
-        drawScreen();
-      } catch (err) {
-        statusText.innerText = "【Ver.1.1】カメラエラー: " + err.message;
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        statusText.innerText = "【Ver.1.2】エラー：このブラウザはカメラ非対応です";
+        return;
       }
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: useFront ? "user" : "environment" },
+        audio: false
+      }).then(function(mediaStream) {
+        stream = mediaStream;
+        video.srcObject = stream;
+        video.onloadedmetadata = function() {
+          video.play().then(function() {
+            updateStatusGuide();
+            drawScreen();
+          }).catch(function(playErr) {
+            statusText.innerText = "【Ver.1.2】再生エラー: " + playErr.message;
+          });
+        };
+      }).catch(function(err) {
+        statusText.innerText = "【Ver.1.2】カメラ拒否/エラー: " + err.name + " - " + err.message;
+      });
     }
 
     function updateStatusGuide() {
-      if (currentMode === 'grid') statusText.innerText = "【Ver.1.1】画面をなぞって赤線を移動できます";
-      if (currentMode === 'angle') statusText.innerText = "【Ver.1.1】左右の肩など2点をタップしてください";
-      if (currentMode === 'off') statusText.innerText = "【Ver.1.1】通常カメラ表示（線なし）";
+      if (currentMode === 'grid') statusText.innerText = "【Ver.1.2】稼働中：画面なぞりで赤線移動";
+      if (currentMode === 'angle') statusText.innerText = "【Ver.1.2】稼働中：2点をタップで角度計測";
+      if (currentMode === 'off') statusText.innerText = "【Ver.1.2】稼働中：線なし表示";
     }
 
     document.getElementById('startBtn').addEventListener('click', startCamera);
@@ -243,18 +252,3 @@
 
     document.getElementById('resetBtn').addEventListener('click', function() {
       centerXRatio = 0.5;
-      centerYRatio = 0.5;
-      pt1 = null;
-      pt2 = null;
-      drawScreen();
-      statusText.innerText = "【Ver.1.1】位置と計測点をリセットしました";
-    });
-
-    document.getElementById('snapBtn').addEventListener('click', function() {
-      if (!video.videoWidth) {
-        statusText.innerText = "【Ver.1.1】先に「カメラ開始」を押してください";
-        return;
-      }
-      const saveCanvas = document.createElement('canvas');
-      saveCanvas.width = video.videoWidth;
-      saveCanvas.height = video.videoHeight;
