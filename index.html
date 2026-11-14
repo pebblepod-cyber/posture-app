@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>姿勢解析テスト</title>
+  <style>
+    body { margin: 0; background: #111; color: #fff; font-family: sans-serif; text-align: center; }
+    .container { position: relative; width: 100vw; max-width: 600px; margin: 0 auto; }
+    video, canvas { width: 100%; height: auto; display: block; border-radius: 8px; }
+    canvas { position: absolute; top: 0; left: 0; }
+    .controls { padding: 15px; }
+    button { padding: 12px 24px; font-size: 16px; border: none; border-radius: 8px; background: #00c853; color: #fff; font-weight: bold; cursor: pointer; }
+    #status { margin-top: 10px; font-size: 14px; color: #aaa; }
+  </style>
+  <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+  <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div class="controls">
+    <button id="switchBtn">カメラ切り替え（前面 / 背面）</button>
+    <div id="status">AIモデルを読み込み中...</div>
+  </div>
+  <div class="container">
+    <video id="video" playsinline muted></video>
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const statusText = document.getElementById('status');
+    let useFrontCamera = false;
+    let currentStream = null;
+
+    const pose = new Pose({
+      locateFile: (file) => `https://jsdelivr.net{file}`
+    });
+    pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+
+    pose.onResults((results) => {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (results.poseLandmarks) {
+        statusText.innerText = "骨格を検知中！";
+        drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
+        drawLandmarks(ctx, results.poseLandmarks, { color: '#FF0000', lineWidth: 2, radius: 4 });
+      } else {
+        statusText.innerText = "カメラに全身または上半身を映してください";
+      }
+      ctx.restore();
+    });
+
+    async function startCamera() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+      const constraints = {
+        video: { facingMode: useFrontCamera ? "user" : "environment" },
+        audio: false
+      };
+      try {
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = currentStream;
+        video.onloadedmetadata = () => {
+          video.play();
+          detectFrame();
+        };
+      } catch (err) {
+        statusText.innerText = "カメラの起動に失敗しました: " + err.message;
+      }
+    }
+
+    async function detectFrame() {
+      if (!video.paused && !video.ended) {
+        await pose.send({ image: video });
+      }
+      requestAnimationFrame(detectFrame);
+    }
+
+    document.getElementById('switchBtn').addEventListener('click', () => {
+      useFrontCamera = !useFrontCamera;
+      startCamera();
+    });
+
+    startCamera();
+  </script>
+</body>
+</html>
